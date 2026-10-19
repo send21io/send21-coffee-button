@@ -31,9 +31,10 @@
 .tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
 .tile { position: relative; }
 .tile input { position: absolute; opacity: 0; inset: 0; }
-.tile span { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; min-height: 78px; border-radius: 16px;
+.tile span { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; min-height: 86px; border-radius: 16px;
   background: #25262c; border: 2px solid #34353d; font-size: 22px; cursor: pointer; }
 .tile b { font-size: 16px; }
+.tile small { font-size: 11px; font-weight: 700; color: #a3a1a8; min-height: 14px; }
 .tile input:checked + span { border-color: #f7931a; background: #3a2a10; }
 .tile input:focus-visible + span { outline: 3px solid #fef8ec; }
 .msg { width: 100%; margin-top: 10px; background: #25262c; border: 1px solid #34353d; border-radius: 14px; padding: 12px; color: inherit; font-size: 15px; }
@@ -76,7 +77,7 @@
   const tile = (n, cups, checked) => {
     const input = el("input", { type: "radio", name: "cups", value: String(n), "aria-label": `${n} coffee${n > 1 ? "s" : ""}` });
     if (checked) input.checked = true;
-    return el("label", { class: "tile" }, input, el("span", {}, cups, el("b", {}, `×${n}`)));
+    return el("label", { class: "tile" }, input, el("span", {}, cups, el("b", {}, `×${n}`), el("small", { "data-n": String(n) })));
   };
   const form = el(
     "form",
@@ -101,7 +102,10 @@
     pop.hidden = !open;
     fab.setAttribute("aria-expanded", String(open));
     if (open) {
-      fetch(`${origin}/api/wall`).then((r) => r.json()).then((w) => { count.textContent = w.coffees ? `🎉 ${w.coffees} ☕` : ""; }).catch(() => undefined);
+      fetch(`${origin}/api/wall`).then((r) => r.json()).then((w) => {
+        count.textContent = w.coffees ? `🎉 ${w.coffees} ☕` : "";
+        for (const p of form.querySelectorAll("small[data-n]")) p.textContent = typeof w.prices?.[p.dataset.n] === "string" ? w.prices[p.dataset.n] : "";
+      }).catch(() => undefined);
       form.querySelector("input:checked")?.focus();
     }
   }

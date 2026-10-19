@@ -3,7 +3,8 @@ import { dirname, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import express, { type Express, type Request, type Response } from "express";
 import { badgeSvg } from "./badge.js";
-import { applyEvent, checkInput, createOrder, wall, type CoffeeConfig } from "./coffee.js";
+import { applyEvent, checkInput, createOrder, priceFor, wall, type CoffeeConfig } from "./coffee.js";
+import { CUPS } from "./types.js";
 import { formatFiat } from "./currencies.js";
 import { coffeePage, errorPage, esc, wallPage } from "./pages.js";
 import { friendlyError, Send21Error, type createMockClient, type Send21Client } from "./send21.js";
@@ -105,7 +106,8 @@ export function createApp(deps: AppDeps): Express {
   app.post("/coffee", rateLimit(10, 60_000), express.urlencoded({ extended: false, limit: "2kb" }), async (req, res) => {
     const input = checkInput(req.body ?? {});
     if (!input.ok) {
-      res.status(400).type("html").send(coffeePage(page, { error: input.error }));
+      const b = (req.body ?? {}) as { cups?: string; message?: string };
+      res.status(400).type("html").send(coffeePage(page, { error: input.error, cups: Number(b.cups) || 3, message: typeof b.message === "string" ? b.message.slice(0, 80) : "" }));
       return;
     }
     try {
@@ -129,7 +131,9 @@ export function createApp(deps: AppDeps): Express {
   });
   app.get("/api/wall", (_req, res) => {
     // Public data by design, readable by the widget on any site.
-    res.set({ "Access-Control-Allow-Origin": "*", "Cache-Control": "public, max-age=30" }).json(wallData());
+    // prices: what each tile costs, so the widget shows the same prices as the page.
+    const prices = Object.fromEntries(CUPS.map((n) => [n, formatFiat(priceFor(n, coffee.price, coffee.currency), coffee.currency)]));
+    res.set({ "Access-Control-Allow-Origin": "*", "Cache-Control": "public, max-age=30" }).json({ ...wallData(), prices });
   });
   app.get("/badge.svg", (req, res) => {
     const left = req.query.count !== undefined ? `☕ ${wallData().coffees} coffees` : "☕ buy me a coffee";
@@ -153,7 +157,18 @@ export function createApp(deps: AppDeps): Express {
 
 // ---------- mock mode: a tiny local "pay page" that sends signed deliveries ----------
 
-function mountMock(app: Express, secret: string, { client, selfUrl }: NonNullable<AppDeps["mock"]>): void {
+const MOCK_ACTIONS: [string, string, string][] = [
+  ["paid", "✅", "pay"],
+  ["seen", "👀", "start paying"],
+  ["short", "⚠️", "pay 5% short"],
+  ["accept", "👍", "accept the short pay"],
+  ["decline", "↩️", "decline the short pay"],
+  ["expire", "⌛", "let it expire"],
+];
+const mockShell = (title: string, body: string) => `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(title)} · mock pay</title><link rel="icon" href="data:,"><link rel="stylesheet" href="/coffee.css"></head><body><main class="coffee">${body}</main></body></html>`;
+
+function mountMock(app: Express, secret: string, mock: NonNullable<AppDeps["mock"]>): void {
+  const { client } = mock;
   app.get("/mock/pay/:token", (req, res) => {
     const entry = client.requests.get(req.params.token);
     if (!entry) {
@@ -162,10 +177,16 @@ function mountMock(app: Express, secret: string, { client, selfUrl }: NonNullabl
     }
     const t = esc(req.params.token);
     const coins = entry.body.options.map((o, i) => `<option value="${i}">${esc(`${o.currency.toUpperCase()} · ${o.method ?? o.network}`)}</option>`).join("");
-    res.type("html").send(`<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><title>mock pay</title><link rel="stylesheet" href="/coffee.css">
-<main class="coffee"><p class="mock">🧪 mock · no real money</p><p class="big">${esc(formatFiat(entry.body.fiatAmount, entry.body.fiatCurrency))}</p><p>${esc(entry.body.memo)}</p>
-${[["seen", "👀 start paying"], ["paid", "✅ pay"], ["short", "⚠️ pay 5% short"], ["expire", "⌛ expire"]].map(([a, l]) => `<form class="mockrow" method="post" action="/mock/pay/${t}/${a}"><select name="coin">${coins}</select><button class="go">${l}</button></form>`).join("")}
-</main>`);
+    const amount = formatFiat(entry.body.fiatAmount, entry.body.fiatCurrency);
+    res.type("html").send(
+      mockShell(
+        amount,
+        `<p class="mock">🧪 mock pay page · no real money</p><p class="big">${esc(amount)}</p><p class="memo">${esc(entry.body.memo)}</p>
+<form method="post" action="/mock/pay/${t}/paid" class="mockcard"><label for="coin">🪙 pay with</label><select id="coin" name="coin">${coins}</select>
+<div class="acts">${MOCK_ACTIONS.map(([a, i, l]) => `<button formaction="/mock/pay/${t}/${a}" class="${a === "paid" ? "main" : ""}">${i} ${l}</button>`).join("")}</div></form>
+<p class="foot">Each button sends a signed webhook to this app, like send21 would. 👍 / ↩️ are what the send21 account owner does with a short pay.</p>`,
+      ),
+    );
   });
 
   app.post("/mock/pay/:token/:action", express.urlencoded({ extended: false, limit: "1kb" }), async (req, res) => {
@@ -190,23 +211,43 @@ ${[["seen", "👀 start paying"], ["paid", "✅ pay"], ["short", "⚠️ pay 5% 
       sentAmount: (amountSats / units).toFixed(Math.log10(units)),
       occurredAt: new Date().toISOString(),
     };
-    const action = req.params.action;
-    const body =
-      action === "paid"
-        ? { event: "draft.confirmed", data: { ...base, status: "Confirmed", txId: `mock-${randomUUID()}`, confirmations: 1 } }
-        : action === "seen"
-          ? { event: "draft.seen", data: { ...base, status: "Seen", txId: `mock-${randomUUID()}`, confirmations: 0 } }
-          : action === "short"
-            ? { event: "draft.amount_mismatch", data: { ...base, status: "AwaitingPayment", reviewState: "pending", receivedAmountSats: Math.round(amountSats * 0.95) } }
-            : { event: "payment_request.expired", data: { paymentRequestId: entry.response.id, orderId: entry.body.orderId, opened: true, quoteRequested: false } };
-    const raw = JSON.stringify(body);
-    const deliveryId = randomUUID();
-    const r = await fetch(`${selfUrl}/webhooks/send21`, {
-      method: "POST",
-      headers: { "content-type": "application/json", "x-send21-event": body.event, "x-send21-delivery": deliveryId, "x-send21-signature-v2": signV2(raw, deliveryId, Math.floor(Date.now() / 1000), secret) },
-      body: raw,
-    });
-    res.type("html").send(`<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/coffee.css">
-<main class="coffee"><p class="big">${r.ok ? "📨" : "❌"}</p><p>${esc(r.ok ? body.event : String(r.status))}</p><a class="go" href="/wall">🎉 wall</a><p class="foot"><a href="/mock/pay/${esc(req.params.token)}">↩️ back</a></p></main>`);
+    const short = Math.round(amountSats * 0.95);
+    const tx = `mock-${randomUUID()}`;
+    const events: Record<string, { event: string; data: Record<string, unknown> }[]> = {
+      paid: [{ event: "draft.confirmed", data: { ...base, status: "Confirmed", txId: tx, confirmations: 1 } }],
+      seen: [{ event: "draft.seen", data: { ...base, status: "Seen", txId: tx, confirmations: 0 } }],
+      short: [{ event: "draft.amount_mismatch", data: { ...base, status: "AwaitingPayment", reviewState: "pending", receivedAmountSats: short } }],
+      // The owner accepts on send21: draft.mismatch_accepted, then draft.confirmed for the received amount.
+      accept: [
+        { event: "draft.mismatch_accepted", data: { ...base, status: "AwaitingPayment", reviewState: "accepted", acceptReason: "close enough", receivedAmountSats: short } },
+        { event: "draft.confirmed", data: { ...base, status: "Confirmed", txId: tx, confirmations: 1, receivedAmountSats: short } },
+      ],
+      decline: [{ event: "draft.mismatch_rejected", data: { ...base, status: "AwaitingPayment", reviewState: "rejected", rejectReason: "too short", refund: "manual", receivedAmountSats: short } }],
+      expire: [{ event: "payment_request.expired", data: { paymentRequestId: entry.response.id, orderId: entry.body.orderId, opened: true, quoteRequested: false } }],
+    };
+    const list = Object.hasOwn(events, req.params.action) ? events[req.params.action]! : null;
+    if (!list) {
+      res.status(404).send("unknown action");
+      return;
+    }
+    let r = { ok: false, status: 0 };
+    for (const body of list) {
+      const raw = JSON.stringify(body);
+      const deliveryId = randomUUID();
+      r = await fetch(`${mock.selfUrl}/webhooks/send21`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-send21-event": body.event, "x-send21-delivery": deliveryId, "x-send21-signature-v2": signV2(raw, deliveryId, Math.floor(Date.now() / 1000), secret) },
+        body: raw,
+      });
+      if (!r.ok) break;
+    }
+    const names = list.map((b) => b.event).join(" → ");
+    res.status(r.ok ? 200 : 502).type("html").send(
+      mockShell(
+        names,
+        `<p class="big">${r.ok ? "📨" : "❌"}</p><h1>${r.ok ? "webhook sent" : `webhook refused (${r.status})`}</h1><p class="memo"><code>${esc(names)}</code></p>
+<a class="go" href="/wall">🎉 see the wall</a><a class="go ghost" href="/mock/pay/${esc(req.params.token)}">↩️ mock pay page</a>`,
+      ),
+    );
   });
 }

@@ -41,7 +41,7 @@ export interface PageConfig {
   mock: boolean;
 }
 
-export function coffeePage(cfg: PageConfig, { error, cups = 3 }: { error?: string; cups?: number } = {}): string {
+export function coffeePage(cfg: PageConfig, { error, cups = 3, message = "" }: { error?: string; cups?: number; message?: string } = {}): string {
   const lightning = cfg.options.some((o) => o.method === "Lightning");
   const tiles = CUPS.map(
     (n) => `<label class="tile"><input type="radio" name="cups" value="${n}"${n === cups ? " checked" : ""}>
@@ -51,18 +51,19 @@ export function coffeePage(cfg: PageConfig, { error, cups = 3 }: { error?: strin
     `☕ ${cfg.creator}`,
     `<main class="coffee">
 ${cfg.mock ? '<p class="mock">🧪 mock</p>' : ""}
-<div class="mug" aria-hidden="true"><span class="steam">♨️</span>☕</div>
+<div class="mug" aria-hidden="true">☕</div>
+<p class="kicker">buy a coffee for</p>
 <h1>${esc(cfg.creator)}</h1>
-${lightning ? '<p class="hero">⚡ Lightning first</p>' : ""}
-${error ? `<p class="err" role="alert">${esc(error)}</p>` : ""}
+${lightning ? '<p class="hero">⚡ Lightning first · any wallet</p>' : '<p class="hero">💸 pay from any wallet</p>'}
+${error ? `<p class="err" role="alert" id="err">${esc(error)}</p>` : ""}
 <form method="post" action="/coffee">
 <input type="hidden" name="nonce" value="${newNonce()}">
-<div class="tiles">${tiles}</div>
-<input class="msg" name="message" maxlength="80" placeholder="say hi 👋 (optional)" autocomplete="off" aria-label="message">
+<fieldset class="tiles"><legend class="sr">how many coffees</legend>${tiles}</fieldset>
+<input class="msg" name="message" maxlength="80" placeholder="say hi 👋 (optional)" autocomplete="off" aria-label="message" value="${esc(message)}"${error ? ' aria-invalid="true" aria-describedby="err"' : ""}>
 <button class="go">${lightning ? "⚡" : "💸"} pay</button>
 </form>
 <p class="coins">${esc(coinsLine(cfg.options))}</p>
-<p class="foot"><a href="/wall">🎉 wall</a> · <span>send21</span></p>
+<p class="foot">🔒 no account · straight to the creator's wallet · <a href="/wall">🎉 wall</a> · <span>send21</span></p>
 </main>`,
   );
 }
@@ -89,7 +90,7 @@ export function wallPage(creator: string, w: ReturnType<typeof wall>, mock: bool
 ${mock ? '<p class="mock">🧪 mock</p>' : ""}
 <p class="big">🎉</p>
 <h1>${esc(creator)}</h1>
-<p class="stats"><b>☕ ${w.coffees}</b> coffees · <b>💛 ${w.supporters}</b> supporters</p>
+<p class="stats"><b>☕ ${w.coffees}</b> ${w.coffees === 1 ? "coffee" : "coffees"} · <b>💛 ${w.supporters}</b> ${w.supporters === 1 ? "supporter" : "supporters"}</p>
 <a class="go" href="/">☕ buy one</a>
 <ul class="notes">${items}</ul>
 <p class="foot">confirmed payments only · <span>send21</span></p>

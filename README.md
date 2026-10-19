@@ -17,7 +17,7 @@
 
 ## Quickstart
 
-1. **Try it now, no key:** `npm install && npm run dev`, then open http://localhost:3000/demo. Mock mode: tap ☕, pay on the mock page with ✅ and watch the 🎉 wall.
+1. **Try it now, no key:** `npm install && npm run dev`, then open http://localhost:3000/demo. Mock mode: tap ☕, pay on the mock page with ✅ (or try ⚠️ short → 👍 accept / ↩️ decline, ⌛ expire) and watch the 🎉 wall.
 2. **send21 key.** On [send21.io/api-keys](https://send21.io/api-keys), create a key with `drafts:write` (add `webhooks:manage` for step 4).
 3. **Configure.** `cp .env.example .env`: your key, `PUBLIC_URL`, `CREATOR_NAME`, `COFFEE_PRICE` + `COFFEE_CURRENCY` (say 3 EUR) and your receiving addresses: `PAY_LIGHTNING=you@your-wallet.com` and optional extras like `PAY_OPTIONS=usdc-sol:<address>`.
 4. **Webhook.** Put the app behind your own HTTPS address (for example a reverse proxy with a free Let's Encrypt certificate, and `TRUST_PROXY=1`), then run `npm run webhook:register` and paste the printed `SEND21_WEBHOOK_SECRET` into `.env`.
