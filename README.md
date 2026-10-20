@@ -21,6 +21,7 @@
 1. **Try it now, no key:** `npm install && npm run dev`, then open http://localhost:3000/demo. Mock mode: tap ☕, pay on the mock page with ✅ (or try ⚠️ short → 👍 accept / ↩️ decline, ⌛ expire) and watch the 🎉 wall.
 2. **send21 key.** On [send21.io/api-keys](https://send21.io/api-keys), create a key with `drafts:write` (add `webhooks:manage` for step 4).
 3. **Configure.** `cp .env.example .env`: your key, `PUBLIC_URL`, `CREATOR_NAME`, `COFFEE_PRICE` + `COFFEE_CURRENCY` (say 3 EUR) and your receiving addresses: `PAY_LIGHTNING=you@your-wallet.com` and optional extras like `PAY_OPTIONS=usdc-sol:<address>`.
+   - 🔐 **Approve your receiving addresses in send21.** New send21 accounts (created on or after 20 Oct 2026) only accept receiving addresses the owner approved, including Lightning addresses. Add them in the send21 app, or propose one from an agent (MCP `propose_receiving_address`), then sign in and approve it with a passkey or authenticator code. No API key can approve an address. Older accounts can opt in under Settings.
 4. **Webhook.** Put the app behind your own HTTPS address (for example a reverse proxy with a free Let's Encrypt certificate, and `TRUST_PROXY=1`), then run `npm run webhook:register` and paste the printed `SEND21_WEBHOOK_SECRET` into `.env`.
 5. **Run and embed.** `npm run build && npm start`, then paste a snippet below.
 
@@ -119,6 +120,10 @@ Caveats:
 - The wall cannot prove what it leaves out: a payment to your address that never came through a coffee pay link is on the explorer but not on the wall.
 
 **Mock mode:** mock payments get txIds in the right shape so the links render, but they are obviously fake (hex ids start with 16 zeros, Solana ids with `MockTxFake`) and the explorer will say not found. The mock wall says so.
+
+## Troubleshooting
+
+- **422 `address_not_approved`:** a receiving address isn't approved in your send21 account, so nothing was created. Sign in to send21, approve the address (passkey or authenticator code), then try again.
 
 ## Security notes
 
