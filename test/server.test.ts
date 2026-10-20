@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createMockClient } from "../src/send21.js";
 import { createApp } from "../src/server.js";
 import { Store } from "../src/store.js";
-import { coffeeConfig, confirmed, deliver, listen, makeOrder, NONCE, SECRET } from "./helpers.js";
+import { coffeeConfig, confirmed, deliver, listen, makeOrder, NONCE, SECRET, SOL } from "./helpers.js";
 
 let dir: string;
 let file: string;
@@ -14,7 +14,7 @@ let store: Store;
 let mock: ReturnType<typeof createMockClient>;
 const status = () => store.getOrder(NONCE)!.status;
 
-async function start(wall = { amounts: false, messages: true }) {
+async function start(wall: { amounts: boolean; messages: boolean; tx?: boolean } = { amounts: false, messages: true }) {
   store = new Store(file);
   mock = createMockClient("http://localhost");
   server = await listen(createApp({ store, send21: mock, secret: SECRET, coffee: coffeeConfig(), wall, publicUrl: "http://localhost", log: () => undefined }));
@@ -147,5 +147,61 @@ describe("pages and API", () => {
     const codes: number[] = [];
     for (let i = 0; i < 12; i++) codes.push((await post({ nonce: "", cups: "1" })).status);
     expect(codes).toContain(429);
+  });
+});
+
+describe("verifiable wall", () => {
+  const SIG = "5VERv8NMvzbJMEkV8xnrLkEaWRtSz9CosKDYjCJjBRnbJLgp8uirBgmQpjKhoR4tjF3ZpRzrFmBV6UjKdiSZkQUW";
+  const usdcSol = () => confirmed({ sentCurrency: "USDC", network: "Solana", txId: SIG, amountSats: 9_780_000, sentAmount: "9.780000" });
+
+  it("/api/wall: each entry carries chain, label, txId, explorer link and receiving address, plus verify.addresses", async () => {
+    await deliver(server.url, usdcSol());
+    const w = await (await fetch(`${server.url}/api/wall`)).json();
+    expect(w.entries).toEqual([
+      {
+        cups: 3,
+        message: "thanks for the lib 🙌",
+        amount: null,
+        at: "2026-10-19T10:05:00.000Z",
+        tx: { chain: "solana", label: "USDC · Solana", id: SIG, url: `https://solscan.io/tx/${SIG}`, to: SOL },
+      },
+    ]);
+    expect(w.verify).toEqual({ addresses: [{ label: "USDC · Solana", address: SOL, url: `https://solscan.io/account/${SOL}` }] });
+  });
+
+  it("/wall: a safe external link and the verify section", async () => {
+    await deliver(server.url, usdcSol());
+    const html = await (await fetch(`${server.url}/wall`)).text();
+    expect(html).toContain(`<a class="tx" href="https://solscan.io/tx/${SIG}" target="_blank" rel="noopener noreferrer nofollow">`);
+    expect(html).toContain(`href="https://solscan.io/account/${SOL}" target="_blank" rel="noopener noreferrer nofollow"`);
+    expect(html).toContain("verify it yourself");
+    expect(html).not.toMatch(/<script|style=/);
+  });
+
+  it("Lightning: no txId, no link, 'not public'", async () => {
+    await deliver(server.url, confirmed());
+    const w = await (await fetch(`${server.url}/api/wall`)).json();
+    expect(w.entries[0].tx).toEqual({ chain: "lightning", label: "Lightning (not public)", id: null, url: null, to: null });
+    const html = await (await fetch(`${server.url}/wall`)).text();
+    expect(html).toContain("⚡ Lightning (not public)");
+    expect(html).not.toContain("ln-preimage-hash");
+  });
+
+  it("an odd txId is never linked or echoed", async () => {
+    await deliver(server.url, confirmed({ sentCurrency: "USDC", network: "Solana", txId: '"><img src=x>' }));
+    const w = await (await fetch(`${server.url}/api/wall`)).json();
+    expect(w.entries[0].tx).toMatchObject({ id: null, url: null });
+    expect(await (await fetch(`${server.url}/wall`)).text()).not.toContain("<img src=x>");
+  });
+
+  it("WALL_SHOW_TX off: no tx, no verify section", async () => {
+    await server.close();
+    await start({ amounts: false, messages: true, tx: false });
+    await deliver(server.url, usdcSol());
+    const w = await (await fetch(`${server.url}/api/wall`)).json();
+    expect(w.entries[0].tx).toBeUndefined();
+    expect(w.verify).toBeUndefined();
+    const html = await (await fetch(`${server.url}/wall`)).text();
+    expect(html).not.toContain("solscan");
   });
 });

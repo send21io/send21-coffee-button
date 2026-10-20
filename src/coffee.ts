@@ -1,4 +1,5 @@
 import { formatFiat, fiatDecimals, toMinor } from "./currencies.js";
+import { receivingAddresses, wallTx, type WallAddress, type WallTx } from "./explorer.js";
 import { cleanText } from "./sanitize.js";
 import type { Send21Client } from "./send21.js";
 import type { Store, StoreData } from "./store.js";
@@ -103,6 +104,8 @@ export interface DraftEventData {
   orderId?: string;
   reviewState?: string;
   occurredAt?: string;
+  /** Not in the documented payload today; used to tell Lightning from on-chain BTC if send21 sends it. */
+  paymentMethod?: string;
 }
 
 const eq = (a: unknown, b: unknown) => String(a ?? "").toLowerCase() === String(b ?? "").toLowerCase();
@@ -157,6 +160,7 @@ export function applyEvent(d: StoreData, body: { event?: unknown; data?: unknown
           network: String(data.network),
           amount: data.receivedAmount ?? data.sentAmount ?? null,
           txId: String(data.txId),
+          ...(typeof data.paymentMethod === "string" && data.paymentMethod ? { method: data.paymentMethod.slice(0, 32) } : {}),
           differentAmount: data.receivedAmountSats !== undefined && data.receivedAmountSats !== data.amountSats,
           at: data.occurredAt ?? nowIso,
         },
@@ -189,15 +193,50 @@ export interface WallEntry {
   message: string | null;
   amount: string | null;
   at: string;
+  /** Present when the wall shows transactions (WALL_SHOW_TX, default on). */
+  tx?: WallTx;
+}
+
+export interface WallOptions {
+  amounts: boolean;
+  messages: boolean;
+  /** Show txIds, explorer links and the receiving addresses. Default true. */
+  tx?: boolean;
+  /** The configured receiving options, published in `verify.addresses`. */
+  options?: PayOption[];
+  limit?: number;
+}
+
+export interface Wall {
+  coffees: number;
+  supporters: number;
+  entries: WallEntry[];
+  /** Present when the wall shows transactions: every on-chain address the listed payments went to. */
+  verify?: { addresses: WallAddress[] };
 }
 
 /** Confirmed payments only, newest first. Hidden entries still count but are not listed. */
-export function wall(orders: Order[], { amounts, messages, limit = 100 }: { amounts: boolean; messages: boolean; limit?: number }) {
+export function wall(orders: Order[], { amounts, messages, tx = true, options = [], limit = 100 }: WallOptions): Wall {
   const paid = orders.filter((o) => o.status === "paid");
   const entries: WallEntry[] = paid
     .filter((o) => !o.hidden)
     .sort((a, b) => (b.paid?.at ?? b.updatedAt).localeCompare(a.paid?.at ?? a.updatedAt))
     .slice(0, limit)
-    .map((o) => ({ cups: o.cups, message: messages ? o.message : null, amount: amounts ? formatFiat(o.fiatAmount, o.fiatCurrency) : null, at: o.paid?.at ?? o.updatedAt }));
-  return { coffees: paid.reduce((n, o) => n + o.cups, 0), supporters: paid.length, entries };
+    .map((o) => ({
+      cups: o.cups,
+      message: messages ? o.message : null,
+      amount: amounts ? formatFiat(o.fiatAmount, o.fiatCurrency) : null,
+      at: o.paid?.at ?? o.updatedAt,
+      ...(tx && o.paid ? { tx: wallTx(o.paid, o.options) } : {}),
+    }));
+  const result: Wall = { coffees: paid.reduce((n, o) => n + o.cups, 0), supporters: paid.length, entries };
+  if (!tx) return result;
+  // The configured addresses first, then any older address a listed payment went to.
+  const addresses = receivingAddresses(options);
+  for (const o of paid.filter((p) => !p.hidden && p.paid)) {
+    const to = wallTx(o.paid!, o.options);
+    const a = to.to ? receivingAddresses(o.options).find((x) => x.address === to.to && x.label === to.label) : undefined;
+    if (a && !addresses.some((b) => b.address === a.address && b.label === a.label)) addresses.push(a);
+  }
+  return { ...result, verify: { addresses } };
 }

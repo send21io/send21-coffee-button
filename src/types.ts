@@ -34,7 +34,16 @@ export interface Order {
   payUrl: string | null;
   expiresAt: string | null;
   status: OrderStatus;
-  paid?: { currency: string; network: string; amount: string | null; txId: string; differentAmount: boolean; at: string };
+  paid?: {
+    currency: string;
+    network: string;
+    amount: string | null;
+    txId: string;
+    /** paymentMethod, when the webhook carries one ("Lightning"). */
+    method?: string;
+    differentAmount: boolean;
+    at: string;
+  };
   problems?: string[];
   /** Hidden from the wall by the owner (npm run wall:hide). */
   hidden?: boolean;

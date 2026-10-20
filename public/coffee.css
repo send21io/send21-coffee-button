@@ -40,6 +40,19 @@ h1 { font-size: 26px; margin: 4px 0; letter-spacing: -.01em; }
 .note .m { grid-area: m; font-weight: 600; overflow-wrap: anywhere; }
 .note .dim { color: var(--dim); }
 .note .meta { grid-area: t; color: var(--dim); font-size: 13px; }
+.note { grid-template-areas: "c m" "c t" "c x"; }
+.note .tx { grid-area: x; font-size: 13px; font-weight: 600; text-decoration: none; overflow-wrap: anywhere; }
+.note a.tx:hover { text-decoration: underline; }
+.note .tx code, .verify code { font-size: 12px; padding: 1px 6px; }
+.note .tx code { white-space: nowrap; }
+.verify { margin-top: 26px; background: var(--card); border: 1px solid var(--line); border-radius: 18px; padding: 16px; text-align: left; font-size: 14px; }
+.verify h2 { font-size: 17px; margin: 0 0 6px; }
+.verify p { margin: 6px 0; }
+.verify .dim { color: var(--dim); }
+.addrs { list-style: none; padding: 0; margin: 10px 0; display: grid; gap: 8px; }
+.addrs li { display: grid; gap: 2px; }
+.addrs .lbl { color: var(--dim); font-size: 12px; font-weight: 700; }
+.addrs code { overflow-wrap: anywhere; word-break: break-all; }
 .empty { text-align: center; color: var(--dim); font-size: 20px; padding: 30px; }
 .memo { color: var(--dim); margin: 0 0 18px; }
 .mockcard { background: var(--card); border: 1px solid var(--line); border-radius: 20px; padding: 16px; text-align: left; }

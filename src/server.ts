@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { dirname, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import express, { type Express, type Request, type Response } from "express";
@@ -16,7 +16,8 @@ export interface AppDeps {
   send21: Send21Client;
   secret: string;
   coffee: CoffeeConfig;
-  wall: { amounts: boolean; messages: boolean };
+  /** tx: txIds, explorer links and receiving addresses (default true). */
+  wall: { amounts: boolean; messages: boolean; tx?: boolean };
   publicUrl: string;
   log?: (line: string) => void;
   /** Mock mode only: /mock/pay/<token> simulates payments, /demo is a sample host page. */
@@ -125,7 +126,7 @@ export function createApp(deps: AppDeps): Express {
   });
 
   // ---------- supporters wall, badge, widget ----------
-  const wallData = () => wall(store.orders(), deps.wall);
+  const wallData = () => wall(store.orders(), { ...deps.wall, options: coffee.options });
   app.get("/wall", (_req, res) => {
     res.set("Cache-Control", "no-store").type("html").send(wallPage(coffee.creator, wallData(), send21.mode === "mock"));
   });
@@ -166,6 +167,22 @@ const MOCK_ACTIONS: [string, string, string][] = [
   ["expire", "⌛", "let it expire"],
 ];
 const mockShell = (title: string, body: string) => `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(title)} · mock pay</title><link rel="icon" href="data:,"><link rel="stylesheet" href="/coffee.css"></head><body><main class="coffee">${body}</main></body></html>`;
+
+/**
+ * A txId in the right shape for the chain, so the mock wall shows real-looking
+ * explorer links, but obviously fake: hex ids start with 16 zeros and Solana
+ * signatures with "MockTxFake". Explorers answer "not found" for them.
+ */
+export function mockTxId(option: { network: string; method?: string }): string {
+  const hex = (n: number) => randomBytes(n).toString("hex");
+  if (option.method === "Lightning") return hex(32); // a payment hash: never linked
+  if (option.network === "Solana") {
+    const abc = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+    return "MockTxFake" + Array.from(randomBytes(78), (b) => abc[b % abc.length]).join("");
+  }
+  if (option.network === "Mainnet") return "0".repeat(16) + hex(24);
+  return "0x" + "0".repeat(16) + hex(24);
+}
 
 function mountMock(app: Express, secret: string, mock: NonNullable<AppDeps["mock"]>): void {
   const { client } = mock;
@@ -212,7 +229,7 @@ function mountMock(app: Express, secret: string, mock: NonNullable<AppDeps["mock
       occurredAt: new Date().toISOString(),
     };
     const short = Math.round(amountSats * 0.95);
-    const tx = `mock-${randomUUID()}`;
+    const tx = mockTxId(option);
     const events: Record<string, { event: string; data: Record<string, unknown> }[]> = {
       paid: [{ event: "draft.confirmed", data: { ...base, status: "Confirmed", txId: tx, confirmations: 1 } }],
       seen: [{ event: "draft.seen", data: { ...base, status: "Seen", txId: tx, confirmations: 0 } }],

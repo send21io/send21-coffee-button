@@ -85,3 +85,19 @@ describe("mock pay page", () => {
     expect(store.orders().map((o) => o.status)).toEqual(["open"]);
   });
 });
+
+describe("mock wall links", () => {
+  it("a mock USDC · Solana payment shows a fake but well-formed solscan link; Lightning shows none", async () => {
+    const sol = await order("sol");
+    expect((await post(`/mock/pay/${sol.token}/paid`, "coin=1")).status).toBe(200);
+    const ln = await order("ln");
+    expect((await post(`/mock/pay/${ln.token}/paid`, "coin=0")).status).toBe(200);
+    const w = (await (await fetch(`${server.url}/api/wall`)).json()) as { entries: { message: string; tx: { chain: string; id: string | null; url: string | null } }[] };
+    const s = w.entries.find((e) => e.message === "sol")!.tx;
+    expect(s.chain).toBe("solana");
+    expect(s.id).toMatch(/^MockTxFake/);
+    expect(s.url).toBe(`https://solscan.io/tx/${s.id}`);
+    expect(w.entries.find((e) => e.message === "ln")!.tx).toMatchObject({ chain: "lightning", id: null, url: null });
+    expect(await (await fetch(`${server.url}/wall`)).text()).toContain("mock txIds are fake");
+  });
+});

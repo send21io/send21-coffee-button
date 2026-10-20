@@ -5,7 +5,7 @@
 <p>
   <img src="docs/widget-mock.png" alt="Floating coffee button and popup on a sample project page" width="240">
   <img src="docs/coffee-page-mock.png" alt="Coffee page: x1, x3, x5 and a message" width="240">
-  <img src="docs/wall-mock.png" alt="Supporters wall with coffee count and notes" width="240">
+  <img src="docs/wall-mock.png" alt="Supporters wall with coffee count, notes, explorer links and the verify box" width="240">
 </p>
 <p><img src="docs/badge-mock.png" alt="README badge: buy me a coffee | send21" width="620"></p>
 
@@ -14,6 +14,7 @@
 - ⚡ Fans tap ☕ ×1, ×3 or ×5, say hi, and pay over **BTC Lightning**, or USDC, USDT, EURC, SOL, ETH, on-chain BTC, whichever you add
 - 🔒 Non-custodial: the money goes from the fan's wallet straight to yours
 - 🎉 A public supporters wall, filled only by verified, confirmed payments
+- 🔎 Independently verifiable: every on-chain coffee links to its transaction on a public block explorer ([verify the wall yourself](#verify-the-wall-yourself))
 
 ## Quickstart
 
@@ -39,7 +40,7 @@ Options: `data-position="left"`, `data-label="☕"`. It lives in a shadow root, 
 [![☕ buy me a coffee](https://coffee.example.com/badge.svg)](https://coffee.example.com/)
 ```
 
-Live counter variant: `https://coffee.example.com/badge.svg?count` → `☕ 13 coffees | send21`. Wall: `https://coffee.example.com/wall`, JSON: `/api/wall`.
+Live counter variant: `https://coffee.example.com/badge.svg?count` → `☕ 13 coffees | send21`. Wall: `https://coffee.example.com/wall`, JSON: `/api/wall` (shape in [Verify the wall yourself](#verify-the-wall-yourself)).
 
 ## How it works
 
@@ -69,11 +70,55 @@ sequenceDiagram
 | `draft.amount_mismatch` → `mismatch_accepted` / `rejected` / `unresolved` | ⚠️ review → 👍 / ↩️ / ⚠️ | only after a matching `draft.confirmed` |
 | `payment_request.expired`, `draft.expired` | ⌛ expired (a late confirmed payment still counts) | no |
 
-Payments up to `COFFEE_SHORTFALL_PERCENT` (default 2%) short are accepted through send21's `shortfallPolicy`; other different amounts wait for you to accept or decline them on send21. Hide a note with `npm run wall:hide -- <order id>` (it still counts); hide all amounts or messages with `WALL_SHOW_AMOUNTS` / `WALL_SHOW_MESSAGES`. Amounts are hidden by default.
+Payments up to `COFFEE_SHORTFALL_PERCENT` (default 2%) short are accepted through send21's `shortfallPolicy`; other different amounts wait for you to accept or decline them on send21. Hide a note with `npm run wall:hide -- <order id>` (it still counts); hide all amounts or messages with `WALL_SHOW_AMOUNTS` / `WALL_SHOW_MESSAGES`. Amounts are hidden by default. Transaction ids, explorer links and your receiving addresses are shown by default; turn them off with `WALL_SHOW_TX=false`.
 
 **⚡ Lightning.** send21 fetches a fresh invoice from your Lightning address for the exact amount and confirms the payment when your wallet provider supports **LUD-21**. Use a provider with LUD-21: without it, the fan's payment still reaches you, but send21 cannot confirm it on its own, so it won't reach the wall. See [Lightning](https://send21.io/docs/lightning).
 
 **Fees.** One small send21 fee per paid coffee (0.49% on small payments, at least $0.01), never taken from the payment. See [pricing](https://send21.io/pricing).
+
+## Verify the wall yourself
+
+You don't have to trust this server (or send21) for the totals. With `WALL_SHOW_TX=true` (the default), every on-chain entry on `/wall` links to its transaction on a public block explorer, and a **🔎 verify it yourself** box lists the on-chain addresses the listed payments went to, each linked to the explorer too.
+
+| Paid with (stored `currency` · `network`) | Explorer |
+| --- | --- |
+| SOL, USDC, USDT, EURC · `Solana` | `https://solscan.io/tx/<txId>` |
+| ETH, USDC, USDT, EURC · `Ethereum` | `https://etherscan.io/tx/<txId>` |
+| BTC on-chain · `Mainnet` | `https://mempool.space/tx/<txId>` |
+| BTC over Lightning (`method: "Lightning"`) | no link: shown as "Lightning (not public)" |
+| any other network | label and txId, no link |
+
+To check:
+
+1. Open `/wall` (or `/api/wall`) and click a 🔎 transaction.
+2. On the explorer, check the **amount** (the crypto amount for the coffee's fiat price at the time), the **time**, and that the **receiving address** is one listed under 🔎 verify it yourself.
+3. Open each receiving address on the explorer to see its incoming payments, and **sum the on-chain entries**: each listed on-chain coffee should match exactly one incoming transaction. The wall's ☕ and 💛 totals also count Lightning payments and notes the owner hid, so they can be higher than what you can count on-chain. The page and the API list the latest 100 entries.
+
+`/api/wall` returns the same data as JSON (public, CORS `*`):
+
+```json
+{
+  "coffees": 4, "supporters": 2,
+  "entries": [
+    { "cups": 3, "message": "keep going!", "amount": null, "at": "2026-10-19T10:05:00.000Z",
+      "tx": { "chain": "solana", "label": "USDC · Solana", "id": "5VERv8NM…", "url": "https://solscan.io/tx/5VERv8NM…", "to": "7xKXtg2C…" } },
+    { "cups": 1, "message": null, "amount": null, "at": "2026-10-18T09:00:00.000Z",
+      "tx": { "chain": "lightning", "label": "Lightning (not public)", "id": null, "url": null, "to": null } }
+  ],
+  "verify": { "addresses": [ { "label": "USDC · Solana", "address": "7xKXtg2C…", "url": "https://solscan.io/account/7xKXtg2C…" } ] },
+  "prices": { "1": "3.00 EUR", "3": "9.00 EUR", "5": "15.00 EUR" }
+}
+```
+
+How the link is built: the txId comes from the signed `draft.confirmed` webhook and is checked for shape first (base58 signature on Solana, `0x` + 64 hex on Ethereum, 64 hex for Bitcoin). A txId in any other shape gets no id and no link. send21 account payments use the live networks, so only mainnet explorers are linked. The webhook says `BTC` · `Mainnet` for both on-chain and Lightning: the app uses the coin the order offered, and if an order offered both on-chain BTC and Lightning, that entry shows its id but no link rather than a guess. Links open in a new tab with `rel="noopener noreferrer nofollow"`.
+
+Caveats:
+
+- **The sender is public too.** An explorer shows the address a payment came from, and that address's other activity. A fan who wants privacy should pay over Lightning, or from a fresh address. Turn the whole thing off with `WALL_SHOW_TX=false`.
+- **Lightning isn't publicly verifiable.** A Lightning payment leaves no public record, so those entries say "Lightning (not public)" and have no txId.
+- The wall cannot prove what it leaves out: a payment to your address that never came through a coffee pay link is on the explorer but not on the wall.
+
+**Mock mode:** mock payments get txIds in the right shape so the links render, but they are obviously fake (hex ids start with 16 zeros, Solana ids with `MockTxFake`) and the explorer will say not found. The mock wall says so.
 
 ## Security notes
 
@@ -88,7 +133,7 @@ Payments up to `COFFEE_SHORTFALL_PERCENT` (default 2%) short are accepted throug
 ## Develop
 
 ```bash
-npm run check   # typecheck + lint + tests (signature, dedupe, order matching, idempotency, wall, badge, API)
+npm run check   # typecheck + lint + tests (signature, dedupe, order matching, idempotency, wall, explorer links, badge, API)
 ```
 
 API reference: [send21.io/docs](https://send21.io/docs) · [quickstart](https://send21.io/docs/quickstart) · [webhooks](https://send21.io/docs/webhooks) · [llms-full.txt](https://send21.io/llms-full.txt). More examples: [send21-examples](https://github.com/send21io/send21-examples).

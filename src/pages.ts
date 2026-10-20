@@ -1,6 +1,7 @@
 import { randomInt } from "node:crypto";
 import { coinFor, formatFiat } from "./currencies.js";
-import { priceFor, type wall } from "./coffee.js";
+import { priceFor, type Wall } from "./coffee.js";
+import type { WallTx } from "./explorer.js";
 import { CUPS, type PayOption } from "./types.js";
 
 // Server-rendered pages: no JavaScript needed to buy a coffee. Every value
@@ -76,11 +77,38 @@ const ago = (iso: string, now: number) => {
   return `${Math.floor(s / 86400)}d`;
 };
 
-export function wallPage(creator: string, w: ReturnType<typeof wall>, mock: boolean, now = Date.now()): string {
+// External links: new tab, no opener, no referrer, no SEO credit.
+const ext = (url: string, inner: string, cls = "") => `<a${cls ? ` class="${cls}"` : ""} href="${esc(url)}" target="_blank" rel="noopener noreferrer nofollow">${inner}</a>`;
+const shortId = (id: string) => (id.length > 16 ? `${id.slice(0, 8)}…${id.slice(-6)}` : id);
+export const VERIFY_DOCS = "https://github.com/send21io/send21-coffee-button#verify-the-wall-yourself";
+
+/** One line under a wall note: the explorer link, or why there is none. */
+export function txLine(tx: WallTx): string {
+  if (tx.chain === "lightning") return `<span class="tx dim">⚡ ${esc(tx.label)}</span>`;
+  const id = tx.id ? ` · <code title="${esc(tx.id)}">${esc(shortId(tx.id))}</code>` : "";
+  if (tx.url) return ext(tx.url, `🔎 ${esc(tx.label)}${id}`, "tx");
+  return `<span class="tx dim">${esc(tx.label)}${id || " · no public link"}</span>`;
+}
+
+function verifySection(v: NonNullable<Wall["verify"]>, mock: boolean): string {
+  const addrs = v.addresses
+    .map((a) => `<li><span class="lbl">${esc(a.label)}</span>${a.url ? ext(a.url, `<code>${esc(a.address)}</code>`) : `<code>${esc(a.address)}</code>`}</li>`)
+    .join("");
+  return `<section class="verify" aria-labelledby="verify-h"><h2 id="verify-h">🔎 verify it yourself</h2>
+<p>On-chain coffees link to a public block explorer: check the amount, the time and that it went to ${v.addresses.length === 1 ? "this address" : "one of these addresses"}.</p>
+${addrs ? `<ul class="addrs">${addrs}</ul>` : ""}
+<p class="dim">⚡ Lightning payments are not on a public chain, so they can't be checked here. Hidden notes still count in the totals.</p>
+${mock ? '<p class="mock">🧪 mock txIds are fake: explorers will say not found</p>' : ""}
+<p class="dim"><a href="/api/wall">JSON</a> · ${ext(VERIFY_DOCS, "how to check")}</p>
+</section>`;
+}
+
+export function wallPage(creator: string, w: Wall, mock: boolean, now = Date.now()): string {
   const items = w.entries.length
     ? w.entries
         .map(
-          (e) => `<li class="note"><span class="cups">☕×${e.cups}</span>${e.message ? `<span class="m">${esc(e.message)}</span>` : '<span class="m dim">💛</span>'}<span class="meta">${e.amount ? `${esc(e.amount)} · ` : ""}${ago(e.at, now)}</span></li>`,
+          (e) =>
+            `<li class="note"><span class="cups">☕×${e.cups}</span>${e.message ? `<span class="m">${esc(e.message)}</span>` : '<span class="m dim">💛</span>'}<span class="meta">${e.amount ? `${esc(e.amount)} · ` : ""}${ago(e.at, now)}</span>${e.tx ? txLine(e.tx) : ""}</li>`,
         )
         .join("")
     : '<li class="empty">🫙 be the first</li>';
@@ -93,6 +121,7 @@ ${mock ? '<p class="mock">🧪 mock</p>' : ""}
 <p class="stats"><b>☕ ${w.coffees}</b> ${w.coffees === 1 ? "coffee" : "coffees"} · <b>💛 ${w.supporters}</b> ${w.supporters === 1 ? "supporter" : "supporters"}</p>
 <a class="go" href="/">☕ buy one</a>
 <ul class="notes">${items}</ul>
+${w.verify ? verifySection(w.verify, mock) : ""}
 <p class="foot">confirmed payments only · <span>send21</span></p>
 </main>`,
   );

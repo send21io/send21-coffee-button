@@ -13,7 +13,7 @@ const app = createApp({
   send21,
   secret: cfg.webhookSecret,
   coffee: { creator: cfg.creator, price: cfg.price, currency: cfg.currency, options: cfg.options, expiryHours: cfg.expiryHours, shortfallPercent: cfg.shortfallPercent },
-  wall: { amounts: cfg.wallAmounts, messages: cfg.wallMessages },
+  wall: { amounts: cfg.wallAmounts, messages: cfg.wallMessages, tx: cfg.wallTx },
   publicUrl: cfg.publicUrl,
   trustProxy: cfg.trustProxy,
   ...(mockClient ? { mock: { client: mockClient, selfUrl: `http://127.0.0.1:${cfg.port}` } } : {}),

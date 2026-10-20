@@ -20,6 +20,8 @@ export interface Config {
   shortfallPercent: number;
   wallAmounts: boolean;
   wallMessages: boolean;
+  /** Show txIds, block explorer links and the receiving addresses on the wall. */
+  wallTx: boolean;
   dataFile: string;
   mock: boolean;
 }
@@ -57,7 +59,7 @@ export function parseOptions(lightning: string | undefined, list: string | undef
 
 // Sample receiving options for mock mode only. Never used against send21.
 const MOCK_LIGHTNING = "you@wallet.example";
-const MOCK_OPTIONS = "usdc-sol:7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU,eth-base:0x52908400098527886E0F7030069857D2E4169EE7";
+const MOCK_OPTIONS = "usdc-sol:7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU,usdc-eth:0x52908400098527886E0F7030069857D2E4169EE7,eth-base:0x52908400098527886E0F7030069857D2E4169EE7";
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   const apiKey = env.SEND21_API_KEY?.trim() || null;
@@ -90,6 +92,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     shortfallPercent: num(env.COFFEE_SHORTFALL_PERCENT, 2, 0, 10, "COFFEE_SHORTFALL_PERCENT"),
     wallAmounts: flag(env.WALL_SHOW_AMOUNTS, false),
     wallMessages: flag(env.WALL_SHOW_MESSAGES, true),
+    wallTx: flag(env.WALL_SHOW_TX, true),
     dataFile: env.DATA_FILE?.trim() || "./data/coffee.json",
     mock,
   };
